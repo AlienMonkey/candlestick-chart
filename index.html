@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Candlestick Chart</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="toolbar">
+        <div class="toolbar-left">
+          <h1 class="logo">OHLCV Chart</h1>
+          <label class="upload-btn">
+            <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            Upload Excel
+          </label>
+          <span class="symbol-badge" id="symbolBadge">—</span>
+        </div>
+        <div class="toolbar-right">
+          <span class="hint">Formats: .xlsx, .xls, .csv</span>
+        </div>
+      </header>
+
+      <div class="info-bar" id="infoBar">
+        <div class="info-item">
+          <span class="info-label">Date</span>
+          <span class="info-value" id="infoDate">—</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">O</span>
+          <span class="info-value" id="infoOpen">—</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">H</span>
+          <span class="info-value up" id="infoHigh">—</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">L</span>
+          <span class="info-value down" id="infoLow">—</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">C</span>
+          <span class="info-value" id="infoClose">—</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Vol</span>
+          <span class="info-value muted" id="infoVolume">—</span>
+        </div>
+        <div class="info-item change-item">
+          <span class="info-value" id="infoChange">—</span>
+        </div>
+      </div>
+
+      <div class="draw-toolbar" id="drawToolbar">
+        <button class="draw-tool-btn active" data-tool="cursor" title="Cursor (Select)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
+        </button>
+        <div class="draw-tool-sep"></div>
+        <button class="draw-tool-btn" data-tool="horizontal" title="Horizontal Line">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/></svg>
+        </button>
+        <button class="draw-tool-btn" data-tool="vertical" title="Vertical Line">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="3" x2="12" y2="21"/></svg>
+        </button>
+        <button class="draw-tool-btn" data-tool="crosshair" title="Crosshair — measure price and candles">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="4" y1="12" x2="20" y2="12"/>
+            <line x1="12" y1="4" x2="12" y2="20"/>
+          </svg>
+        </button>
+        <button class="draw-tool-btn" data-tool="trend" title="Trend Line">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="18" x2="20" y2="6"/></svg>
+        </button>
+        <button class="draw-tool-btn" data-tool="fibonacci" title="Fibonacci Retracement">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <line x1="4" y1="18" x2="20" y2="6" stroke-dasharray="2 2"/>
+            <line x1="4" y1="18" x2="20" y2="18"/>
+            <line x1="4" y1="14" x2="20" y2="14" opacity="0.7"/>
+            <line x1="4" y1="10" x2="20" y2="10" opacity="0.7"/>
+            <line x1="4" y1="6" x2="20" y2="6"/>
+          </svg>
+        </button>
+        <div class="date-jump-bar" id="dateJumpBar">
+          <input type="text" id="dateJumpInput" placeholder="yyyy.MM.dd" maxlength="10" autocomplete="off" spellcheck="false" />
+          <button type="button" id="dateJumpTodayBtn" title="Jump to most recent day">Today</button>
+        </div>
+      </div>
+
+      <main class="chart-area">
+        <div id="chartContainer" class="chart-container"></div>
+        <aside class="draw-props-sidebar hidden collapsed" id="drawPropsSidebar">
+          <button type="button" class="draw-props-toggle" id="drawPropsToggle" title="Show properties panel">
+            <svg class="draw-props-toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+          <div class="draw-props-panel" id="drawPropsPanel">
+            <h3 class="draw-props-title">Line properties</h3>
+            <div id="propEmptyState" class="prop-empty-state">
+              No drawing selected.<br />Select a line on the chart.
+            </div>
+            <div id="propContent" class="prop-content hidden">
+          <div class="draw-prop-row">
+            <label for="propColor">Color</label>
+            <input type="color" id="propColor" value="#58a6ff" />
+          </div>
+          <div class="draw-prop-row">
+            <label for="propStyle">Style</label>
+            <select id="propStyle">
+              <option value="solid">Solid</option>
+              <option value="dashed">Dashed</option>
+              <option value="dotted">Dotted</option>
+            </select>
+          </div>
+          <div id="propPriceGroup" class="draw-prop-group hidden">
+            <div class="draw-prop-row">
+              <label for="propPrice">Price</label>
+              <input type="number" id="propPrice" step="0.01" />
+            </div>
+          </div>
+          <div id="propTimeGroup" class="draw-prop-group hidden">
+            <div class="draw-prop-row">
+              <label for="propDateTime">Date &amp; time</label>
+              <input type="datetime-local" id="propDateTime" step="1" />
+            </div>
+          </div>
+          <div id="propTrendGroup" class="draw-prop-group hidden">
+            <p class="draw-prop-subtitle">Point 1</p>
+            <div class="draw-prop-row">
+              <label for="propP1Price">Price</label>
+              <input type="number" id="propP1Price" step="0.01" />
+            </div>
+            <div class="draw-prop-row">
+              <label for="propP1DateTime">Date &amp; time</label>
+              <input type="datetime-local" id="propP1DateTime" step="1" />
+            </div>
+            <p class="draw-prop-subtitle">Point 2</p>
+            <div class="draw-prop-row">
+              <label for="propP2Price">Price</label>
+              <input type="number" id="propP2Price" step="0.01" />
+            </div>
+            <div class="draw-prop-row">
+              <label for="propP2DateTime">Date &amp; time</label>
+              <input type="datetime-local" id="propP2DateTime" step="1" />
+            </div>
+          </div>
+          <div id="propFibGroup" class="draw-prop-group hidden">
+            <p class="draw-prop-subtitle">Anchor 1 (0%)</p>
+            <div class="draw-prop-row">
+              <label for="propFibP1Price">Price</label>
+              <input type="number" id="propFibP1Price" step="0.01" />
+            </div>
+            <div class="draw-prop-row">
+              <label for="propFibP1DateTime">Date &amp; time</label>
+              <input type="datetime-local" id="propFibP1DateTime" step="1" />
+            </div>
+            <p class="draw-prop-subtitle">Anchor 2 (100%)</p>
+            <div class="draw-prop-row">
+              <label for="propFibP2Price">Price</label>
+              <input type="number" id="propFibP2Price" step="0.01" />
+            </div>
+            <div class="draw-prop-row">
+              <label for="propFibP2DateTime">Date &amp; time</label>
+              <input type="datetime-local" id="propFibP2DateTime" step="1" />
+            </div>
+            <p class="draw-prop-subtitle">Fibonacci levels</p>
+            <div id="propFibLevels" class="fib-levels-list"></div>
+            <button type="button" class="fib-level-add-btn" id="propFibAddLevel">+ Add level</button>
+            <button type="button" class="fib-level-reset-btn" id="propFibResetLevels">Reset levels</button>
+            <button type="button" class="fib-save-standard-btn" id="propFibSaveStandard">Save as default</button>
+          </div>
+          <button class="draw-delete-btn" id="propDeleteBtn">Delete line</button>
+            </div>
+          </div>
+        </aside>
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">📊</div>
+          <h2>Upload an Excel file with OHLCV data</h2>
+          <p>
+            Expected columns: <strong>Date/Time</strong>, <strong>Open</strong>,
+            <strong>High</strong>, <strong>Low</strong>, <strong>Close</strong>,
+            <strong>Volume</strong>
+          </p>
+          <p class="empty-sub">
+            Column names can be in English or Romanian (Date, Time, Open, High, Low, Close, Volume).
+          </p>
+        </div>
+      </main>
+
+      <footer class="status-bar">
+        <span id="statusText">Ready — select an Excel file</span>
+        <span id="candleCount"></span>
+      </footer>
+    </div>
+
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <script src="ohlc-snap.js"></script>
+    <script src="drawings.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

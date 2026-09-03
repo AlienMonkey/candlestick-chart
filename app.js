@@ -11,6 +11,7 @@ const COLUMN_ALIASES = {
   low: ['low', 'minim', 'min', 'l', 'pret minim', 'pretminim'],
   close: ['close', 'inchidere', 'închidere', 'inch', 'c', 'pret inchidere', 'pretinchidere'],
   volume: ['volume', 'vol', 'volum', 'v', 'qty', 'quantity', 'tickvol'],
+  spread: ['spread'],
   symbol: ['symbol', 'simbol', 'ticker', 'instrument', 'activ'],
 };
 
@@ -42,6 +43,7 @@ const els = {
   infoLow: document.getElementById('infoLow'),
   infoClose: document.getElementById('infoClose'),
   infoVolume: document.getElementById('infoVolume'),
+  infoSpread: document.getElementById('infoSpread'),
   infoChange: document.getElementById('infoChange'),
   dateJumpBar: document.getElementById('dateJumpBar'),
   dateJumpInput: document.getElementById('dateJumpInput'),
@@ -222,6 +224,13 @@ function formatVolume(value) {
   return n.toLocaleString('en-US');
 }
 
+function formatSpread(value) {
+  if (value == null || isNaN(value)) return '—';
+  const n = Number(value);
+  if (Number.isInteger(n)) return n.toLocaleString('en-US');
+  return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
 function parseNumber(value) {
   if (typeof value === 'number') return value;
   if (value == null || value === '') return NaN;
@@ -244,6 +253,7 @@ function parseSheetRows(rows) {
   const colLow = detectColumn(headers, 'low');
   const colClose = detectColumn(headers, 'close');
   const colVolume = detectColumn(headers, 'volume');
+  const colSpread = detectColumn(headers, 'spread');
   const colSymbol = detectColumn(headers, 'symbol');
 
   if (colDatetime === -1 && colDate === -1) {
@@ -282,6 +292,7 @@ function parseSheetRows(rows) {
     const low = parseNumber(row[colLow]);
     const close = parseNumber(row[colClose]);
     const volume = colVolume !== -1 ? parseNumber(row[colVolume]) : 0;
+    const spread = colSpread !== -1 ? parseNumber(row[colSpread]) : NaN;
 
     if ([open, high, low, close].some(isNaN)) continue;
 
@@ -296,6 +307,7 @@ function parseSheetRows(rows) {
       low,
       close,
       volume: isNaN(volume) ? 0 : volume,
+      spread: isNaN(spread) ? null : spread,
     });
   }
 
@@ -344,6 +356,7 @@ function updateInfoBar(candle, snapField = null) {
     els.infoLow.textContent = '—';
     els.infoClose.textContent = '—';
     els.infoVolume.textContent = '—';
+    els.infoSpread.textContent = '—';
     els.infoChange.textContent = '—';
     els.infoChange.className = 'info-value';
     els.infoClose.className = 'info-value';
@@ -363,6 +376,7 @@ function updateInfoBar(candle, snapField = null) {
   els.infoLow.textContent = formatPrice(candle.low);
   els.infoClose.textContent = formatPrice(candle.close);
   els.infoVolume.textContent = formatVolume(candle.volume);
+  els.infoSpread.textContent = formatSpread(candle.spread);
 
   const snapClass = ' snap-highlight';
   els.infoOpen.className = 'info-value' + (snapField === 'open' ? snapClass : '');

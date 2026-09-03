@@ -1,5 +1,5 @@
 /**
- * Drawing tools: horizontal, vertical, trend lines
+ * Drawing tools: horizontal, vertical, trend, fibonacci, circle
  * TradingView / MetaTrader style
  */
 
@@ -19,6 +19,7 @@ const FIB_STANDARD_KEY = 'ohlcv-fib-standard';
 function factoryFibStandard() {
   return {
     color: DEFAULT_FIB_COLOR,
+    width: 2,
     levels: DEFAULT_FIB_LEVELS.map((l) => ({ ...l })),
   };
 }
@@ -45,8 +46,10 @@ function loadFibStandard() {
     const parsed = JSON.parse(raw);
     const levels = sanitizeFibLevels(parsed.levels);
     const color = isValidHexColor(parsed.color) ? parsed.color : DEFAULT_FIB_COLOR;
+    const parsedWidth = Number(parsed.width);
+    const width = [1, 2, 3, 4].includes(parsedWidth) ? parsedWidth : 2;
     if (!levels) return factoryFibStandard();
-    return { color, levels };
+    return { color, width, levels };
   } catch {
     return factoryFibStandard();
   }
@@ -55,6 +58,7 @@ function loadFibStandard() {
 function saveFibStandard(standard) {
   fibStandard = {
     color: standard.color,
+    width: normalizeLineWidth(standard.width),
     levels: standard.levels.map((l) => ({ ratio: l.ratio, enabled: l.enabled })),
   };
   localStorage.setItem(FIB_STANDARD_KEY, JSON.stringify(fibStandard));
@@ -67,6 +71,92 @@ const LINE_STYLES = {
   dashed: { lw: LightweightCharts.LineStyle.Dashed, dash: [8, 4] },
   dotted: { lw: LightweightCharts.LineStyle.Dotted, dash: [2, 3] },
 };
+
+const LINE_WIDTHS = [1, 2, 3, 4];
+const DEFAULT_LINE_WIDTH = 2;
+const DEFAULT_LINE_COLOR = '#58a6ff';
+const DEFAULT_LINE_STYLE = 'solid';
+const LINE_STANDARD_KEY = 'ohlcv-line-standard';
+const LINE_STANDARD_TYPES = ['horizontal', 'vertical', 'trend'];
+
+function normalizeLineWidth(value) {
+  const width = Number(value);
+  return LINE_WIDTHS.includes(width) ? width : DEFAULT_LINE_WIDTH;
+}
+
+function drawingStrokeWidth(drawing) {
+  return normalizeLineWidth(drawing?.width);
+}
+
+function factoryLineStyleProps() {
+  return {
+    color: DEFAULT_LINE_COLOR,
+    style: DEFAULT_LINE_STYLE,
+    width: DEFAULT_LINE_WIDTH,
+  };
+}
+
+function factoryTrendProps() {
+  return {
+    ...factoryLineStyleProps(),
+    infinite: true,
+  };
+}
+
+function factoryLineStandard() {
+  return {
+    horizontal: factoryLineStyleProps(),
+    vertical: factoryLineStyleProps(),
+    trend: factoryTrendProps(),
+  };
+}
+
+function sanitizeLineStyle(value) {
+  return LINE_STYLES[value] ? value : DEFAULT_LINE_STYLE;
+}
+
+function sanitizeLineProps(raw, type) {
+  if (!raw || typeof raw !== 'object') {
+    return type === 'trend' ? factoryTrendProps() : factoryLineStyleProps();
+  }
+  const props = {
+    color: isValidHexColor(raw.color) ? raw.color : DEFAULT_LINE_COLOR,
+    style: sanitizeLineStyle(raw.style),
+    width: normalizeLineWidth(raw.width),
+  };
+  if (type === 'trend') {
+    props.infinite = raw.infinite !== false;
+  }
+  return props;
+}
+
+function loadLineStandard() {
+  try {
+    const raw = localStorage.getItem(LINE_STANDARD_KEY);
+    if (!raw) return factoryLineStandard();
+    const parsed = JSON.parse(raw);
+    const next = factoryLineStandard();
+    for (const type of LINE_STANDARD_TYPES) {
+      next[type] = sanitizeLineProps(parsed[type], type);
+    }
+    return next;
+  } catch {
+    return factoryLineStandard();
+  }
+}
+
+function saveLineStandardForType(type, drawing) {
+  if (!LINE_STANDARD_TYPES.includes(type)) return;
+  lineStandard[type] = sanitizeLineProps({
+    color: drawing.color,
+    style: drawing.style,
+    width: drawing.width,
+    infinite: drawing.infinite,
+  }, type);
+  localStorage.setItem(LINE_STANDARD_KEY, JSON.stringify(lineStandard));
+}
+
+let lineStandard = loadLineStandard();
 
 let drawingState = {
   chart: null,
@@ -82,7 +172,7 @@ let drawingState = {
   helpers: null,
   nextId: 1,
   abortController: null,
-  propsPanelExpanded: false,
+  propsPanelExpanded: true,
   snapOverlay: null,
   liveRedrawRaf: null,
   liveRedrawCount: 0,
@@ -199,11 +289,13 @@ function bindChartSyncRedraw(container, signal) {
 }
 
 function createDrawing(type, defaults = {}) {
+  const saved = LINE_STANDARD_TYPES.includes(type) ? lineStandard[type] : null;
   const base = {
     id: drawingState.nextId++,
     type,
-    color: defaults.color || '#58a6ff',
-    style: defaults.style || 'solid',
+    color: defaults.color || saved?.color || DEFAULT_LINE_COLOR,
+    style: defaults.style || saved?.style || DEFAULT_LINE_STYLE,
+    width: normalizeLineWidth(defaults.width ?? saved?.width),
     priceLineRef: null,
   };
 
@@ -213,10 +305,21 @@ function createDrawing(type, defaults = {}) {
   if (type === 'vertical') {
     return { ...base, time: defaults.time ?? 0 };
   }
+  if (type === 'circle') {
+    return {
+      ...base,
+      color: defaults.color || '#ffffff',
+      time: defaults.time ?? 0,
+      price: defaults.price ?? 0,
+      size: defaults.size ?? 10,
+      filled: defaults.filled ?? true,
+    };
+  }
   if (type === 'fibonacci') {
     return {
       ...base,
       color: defaults.color || fibStandard.color,
+      width: normalizeLineWidth(defaults.width ?? fibStandard.width),
       p1: defaults.p1 ?? { time: 0, price: 0 },
       p2: defaults.p2 ?? { time: 0, price: 0 },
       levels: (defaults.levels ?? fibStandard.levels).map((l) => ({ ...l })),
@@ -226,6 +329,7 @@ function createDrawing(type, defaults = {}) {
     ...base,
     p1: defaults.p1 ?? { time: 0, price: 0 },
     p2: defaults.p2 ?? { time: 0, price: 0 },
+    infinite: defaults.infinite ?? saved?.infinite ?? true,
   };
 }
 
@@ -400,7 +504,7 @@ function getFibBounds(drawing) {
 
 function applyCanvasStroke(ctx, drawing) {
   ctx.strokeStyle = drawing.color;
-  ctx.lineWidth = drawing.selected ? 2.5 : 1.5;
+  ctx.lineWidth = drawingStrokeWidth(drawing);
   ctx.setLineDash(LINE_STYLES[drawing.style]?.dash ?? []);
 }
 
@@ -412,7 +516,7 @@ function syncHorizontalPriceLine(drawing) {
   drawing.priceLineRef = drawingState.series.createPriceLine({
     price: drawing.price,
     color: drawing.color,
-    lineWidth: drawing.selected ? 2 : 1,
+    lineWidth: drawingStrokeWidth(drawing),
     lineStyle: LINE_STYLES[drawing.style].lw,
     axisLabelVisible: true,
     title: '',
@@ -480,6 +584,7 @@ function redrawCanvas() {
     if (d.type === 'vertical') drawVertical(ctx, d);
     if (d.type === 'trend') drawTrend(ctx, d);
     if (d.type === 'fibonacci') drawFibonacci(ctx, d);
+    if (d.type === 'circle') drawCircle(ctx, d);
     if (d.selected) drawHandles(ctx, d);
   }
 
@@ -500,6 +605,27 @@ function redrawCanvas() {
 
   drawMeasureOverlay(ctx);
   drawSnapOverlay(ctx);
+}
+
+function drawCircle(ctx, drawing) {
+  const x = timeToX(drawing.time);
+  const y = priceToY(drawing.price);
+  if (x == null || y == null) return;
+  const radius = Math.max(1, Number(drawing.size) / 2);
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  if (drawing.filled) {
+    ctx.fillStyle = drawing.color;
+    ctx.fill();
+  }
+  if (!drawing.filled || drawing.selected) {
+    ctx.strokeStyle = drawing.selected ? '#58a6ff' : drawing.color;
+    ctx.lineWidth = drawing.selected ? 2 : 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawVertical(ctx, drawing) {
@@ -526,15 +652,20 @@ function drawTrend(ctx, drawing) {
   const dy = y2 - y1;
   if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return;
 
-  let sx, sy, ex, ey;
-  if (Math.abs(dx) < 0.001) {
-    sx = x1; sy = 0; ex = x1; ey = ctx.canvas.height;
-  } else {
-    const slope = dy / dx;
-    sx = 0;
-    sy = y1 + slope * (0 - x1);
-    ex = w;
-    ey = y1 + slope * (w - x1);
+  let sx = x1;
+  let sy = y1;
+  let ex = x2;
+  let ey = y2;
+  if (drawing.infinite !== false) {
+    if (Math.abs(dx) < 0.001) {
+      sx = x1; sy = 0; ex = x1; ey = ctx.canvas.height;
+    } else {
+      const slope = dy / dx;
+      sx = 0;
+      sy = y1 + slope * (0 - x1);
+      ex = w;
+      ey = y1 + slope * (w - x1);
+    }
   }
 
   ctx.beginPath();
@@ -557,9 +688,11 @@ function drawFibonacci(ctx, drawing) {
   const { left, right } = bounds;
   const fmt = drawingState.helpers?.formatPrice ?? ((v) => v.toFixed(2));
 
+  const width = drawingStrokeWidth(drawing);
+
   ctx.setLineDash([]);
   ctx.strokeStyle = drawing.color + '90';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = Math.max(1, width - 1);
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.lineTo(x2, y2);
@@ -619,6 +752,13 @@ function getHandlePoints(drawing) {
     const x = timeToX(drawing.time);
     return [{ x, y: 40, handle: 'time' }];
   }
+  if (drawing.type === 'circle') {
+    return [{
+      x: timeToX(drawing.time),
+      y: priceToY(drawing.price),
+      handle: 'point',
+    }];
+  }
   if (drawing.type === 'fibonacci' || drawing.type === 'trend') {
     return [
       { x: timeToX(drawing.p1.time), y: priceToY(drawing.p1.price), handle: 'p1' },
@@ -628,13 +768,13 @@ function getHandlePoints(drawing) {
   return [];
 }
 
-function distToSegment(px, py, x1, y1, x2, y2) {
+function distToSegment(px, py, x1, y1, x2, y2, clamp = true) {
   const dx = x2 - x1;
   const dy = y2 - y1;
   const lenSq = dx * dx + dy * dy;
   if (lenSq === 0) return Math.hypot(px - x1, py - y1);
   let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
-  t = Math.max(0, Math.min(1, t));
+  if (clamp) t = Math.max(0, Math.min(1, t));
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }
 
@@ -645,18 +785,31 @@ function hitTest(x, y) {
 
   for (let i = drawingState.drawings.length - 1; i >= 0; i--) {
     const d = drawingState.drawings[i];
+    const lineHit = Math.max(threshold, drawingStrokeWidth(d) / 2 + 4);
 
     if (d.type === 'horizontal') {
       const ly = priceToY(d.price);
-      if (ly != null && Math.abs(y - ly) < bestDist) {
+      if (ly != null && Math.abs(y - ly) < bestDist && Math.abs(y - ly) <= lineHit) {
         best = d;
         bestDist = Math.abs(y - ly);
       }
     } else if (d.type === 'vertical') {
       const lx = timeToX(d.time);
-      if (lx != null && Math.abs(x - lx) < bestDist) {
+      if (lx != null && Math.abs(x - lx) < bestDist && Math.abs(x - lx) <= lineHit) {
         best = d;
         bestDist = Math.abs(x - lx);
+      }
+    } else if (d.type === 'circle') {
+      const cx = timeToX(d.time);
+      const cy = priceToY(d.price);
+      if (cx != null && cy != null) {
+        const radius = Math.max(1, Number(d.size) / 2);
+        const dist = Math.hypot(x - cx, y - cy);
+        const hitRadius = Math.max(radius + 3, 8);
+        if (dist <= hitRadius) {
+          best = d;
+          bestDist = Math.min(bestDist, dist);
+        }
       }
     } else if (d.type === 'trend') {
       const x1 = timeToX(d.p1.time);
@@ -664,19 +817,19 @@ function hitTest(x, y) {
       const x2 = timeToX(d.p2.time);
       const y2 = priceToY(d.p2.price);
       if (x1 != null && y1 != null && x2 != null && y2 != null) {
-        const dist = distToSegment(x, y, x1, y1, x2, y2);
-        if (dist < bestDist) {
+        const dist = distToSegment(x, y, x1, y1, x2, y2, d.infinite === false);
+        if (dist <= lineHit && dist < bestDist) {
           best = d;
           bestDist = dist;
         }
       }
     } else if (d.type === 'fibonacci') {
       const bounds = getFibBounds(d);
-      if (!bounds || x < bounds.left - threshold || x > bounds.right + threshold) continue;
+      if (!bounds || x < bounds.left - lineHit || x > bounds.right + lineHit) continue;
       for (const level of d.levels) {
         if (!level.enabled) continue;
         const ly = priceToY(getFibLevelPrice(d, level.ratio));
-        if (ly != null && Math.abs(y - ly) < bestDist) {
+        if (ly != null && Math.abs(y - ly) <= lineHit && Math.abs(y - ly) < bestDist) {
           best = d;
           bestDist = Math.abs(y - ly);
         }
@@ -721,6 +874,29 @@ function deleteSelectedDrawing() {
   updatePropsPanel();
 }
 
+function clearAllDrawings() {
+  for (const d of drawingState.drawings) {
+    if (d.priceLineRef && drawingState.series) {
+      try { drawingState.series.removePriceLine(d.priceLineRef); } catch (_) {}
+    }
+  }
+  drawingState.drawings = [];
+  drawingState.selectedId = null;
+  drawingState.pendingPoint = null;
+  drawingState.drag = null;
+  clearMeasure();
+  if (drawingState.chart) redrawCanvas();
+  updatePropsPanel();
+}
+
+function hideClearDrawingsMenu() {
+  document.getElementById('clearDrawingsMenu')?.classList.add('hidden');
+}
+
+function toggleClearDrawingsMenu() {
+  document.getElementById('clearDrawingsMenu')?.classList.toggle('hidden');
+}
+
 function addDrawing(drawing) {
   drawing.selected = true;
   for (const d of drawingState.drawings) {
@@ -738,12 +914,16 @@ function setActiveTool(tool) {
   drawingState.activeTool = tool;
   drawingState.pendingPoint = null;
   if (tool !== 'crosshair') clearMeasure();
-  document.querySelectorAll('.draw-tool-btn').forEach((btn) => {
+  document.querySelectorAll('#drawToolbar [data-tool]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.tool === tool);
   });
-  drawingState.canvas.style.pointerEvents = 'none';
-  drawingState.canvas.style.cursor = tool === 'cursor' ? 'default' : 'crosshair';
-  drawingState.container.style.cursor = tool === 'cursor' ? 'default' : 'crosshair';
+  if (drawingState.canvas) {
+    drawingState.canvas.style.pointerEvents = 'none';
+    drawingState.canvas.style.cursor = tool === 'cursor' ? 'default' : 'crosshair';
+  }
+  if (drawingState.container) {
+    drawingState.container.style.cursor = tool === 'cursor' ? 'default' : 'crosshair';
+  }
 }
 
 function chartPointFromEvent(e) {
@@ -808,6 +988,12 @@ function onContainerMouseDown(e) {
     return;
   }
 
+  if (tool === 'circle') {
+    addDrawing(createDrawing('circle', { time: pt.time, price: pt.price }));
+    setActiveTool('cursor');
+    return;
+  }
+
   if (tool === 'crosshair') {
     startMeasure(pt);
     e.preventDefault();
@@ -843,6 +1029,25 @@ function cloneDrawing(d) {
   return JSON.parse(JSON.stringify(d));
 }
 
+function setHoverCursor(style) {
+  if (drawingState.container) {
+    drawingState.container.style.cursor = style;
+    drawingState.container.classList.toggle('drawing-hover', style === 'pointer');
+  }
+  if (drawingState.canvas) drawingState.canvas.style.cursor = style;
+}
+
+function updateDrawingHoverCursor(e) {
+  if (!drawingState.container || drawingState.activeTool !== 'cursor') return;
+  if (drawingState.container.classList.contains('space-panning')) return;
+
+  const pt = chartPointFromEvent(e);
+  const selected = getDrawingById(drawingState.selectedId);
+  const overHandle = hitTestHandle(pt.x, pt.y, selected);
+  const overDrawing = overHandle || hitTest(pt.x, pt.y);
+  setHoverCursor(overDrawing ? 'pointer' : 'default');
+}
+
 function onContainerMouseMove(e) {
   if (drawingState.measure?.dragging) {
     const pt = chartPointFromEvent(e);
@@ -856,8 +1061,10 @@ function onContainerMouseMove(e) {
         redrawCanvas();
       }
     }
+    updateDrawingHoverCursor(e);
     return;
   }
+  setHoverCursor('pointer');
   const pt = chartPointFromEvent(e);
   const d = getDrawingById(drawingState.drag.id);
   if (!d || pt.time == null || pt.price == null) return;
@@ -868,6 +1075,11 @@ function onContainerMouseMove(e) {
     if (handle === 'price' || handle === 'move') d.price = pt.price;
   } else if (d.type === 'vertical') {
     if (handle === 'time' || handle === 'move') d.time = pt.time;
+  } else if (d.type === 'circle') {
+    if (handle === 'point' || handle === 'move') {
+      d.time = pt.time;
+      d.price = pt.price;
+    }
   } else if (d.type === 'trend' || d.type === 'fibonacci') {
     if (handle === 'p1') {
       d.p1 = { time: pt.time, price: pt.price };
@@ -959,24 +1171,42 @@ function updatePropsPanel() {
 
   document.getElementById('propColor').value = d.color;
   document.getElementById('propStyle').value = d.style;
+  document.getElementById('propWidth').value = String(drawingStrokeWidth(d));
 
   const priceGroup = document.getElementById('propPriceGroup');
   const timeGroup = document.getElementById('propTimeGroup');
   const trendGroup = document.getElementById('propTrendGroup');
   const fibGroup = document.getElementById('propFibGroup');
+  const circleGroup = document.getElementById('propCircleGroup');
+  const styleRow = document.getElementById('propStyleRow');
+  const widthRow = document.getElementById('propWidthRow');
+  const hideLineStyle = d.type === 'circle';
 
-  priceGroup.classList.toggle('hidden', d.type !== 'horizontal');
+  priceGroup.classList.toggle('hidden', d.type !== 'horizontal' && d.type !== 'circle');
   timeGroup.classList.toggle('hidden', d.type !== 'vertical');
   trendGroup.classList.toggle('hidden', d.type !== 'trend');
   fibGroup.classList.toggle('hidden', d.type !== 'fibonacci');
+  circleGroup.classList.toggle('hidden', d.type !== 'circle');
+  styleRow?.classList.toggle('hidden', hideLineStyle);
+  widthRow?.classList.toggle('hidden', hideLineStyle);
+  document.getElementById('propTrendInfiniteRow')?.classList.toggle('hidden', d.type !== 'trend');
+  document.getElementById('propLineSaveRow')?.classList.toggle(
+    'hidden',
+    !LINE_STANDARD_TYPES.includes(d.type),
+  );
 
-  if (d.type === 'horizontal') {
+  if (d.type === 'horizontal' || d.type === 'circle') {
     document.getElementById('propPrice').value = d.price.toFixed(2);
+  }
+  if (d.type === 'circle') {
+    document.getElementById('propCircleFilled').checked = Boolean(d.filled);
+    document.getElementById('propCircleSize').value = Number(d.size) || 10;
   }
   if (d.type === 'vertical') {
     document.getElementById('propDateTime').value = drawingState.helpers.toInputDateTime(d.time);
   }
   if (d.type === 'trend') {
+    document.getElementById('propTrendInfinite').checked = d.infinite !== false;
     document.getElementById('propP1Price').value = d.p1.price.toFixed(2);
     document.getElementById('propP2Price').value = d.p2.price.toFixed(2);
     document.getElementById('propP1DateTime').value = drawingState.helpers.toInputDateTime(d.p1.time);
@@ -1055,14 +1285,23 @@ function applyPropsFromPanel() {
 
   d.color = document.getElementById('propColor').value;
   d.style = document.getElementById('propStyle').value;
+  if (d.type !== 'circle') {
+    d.width = normalizeLineWidth(document.getElementById('propWidth').value);
+  }
 
-  if (d.type === 'horizontal') {
+  if (d.type === 'horizontal' || d.type === 'circle') {
     d.price = snapPrice(parseFloat(document.getElementById('propPrice').value));
+  }
+  if (d.type === 'circle') {
+    d.filled = document.getElementById('propCircleFilled').checked;
+    const size = parseFloat(document.getElementById('propCircleSize').value);
+    d.size = Number.isFinite(size) ? Math.max(2, Math.min(200, size)) : 10;
   }
   if (d.type === 'vertical') {
     d.time = drawingState.helpers.fromInputDateTime(document.getElementById('propDateTime').value);
   }
   if (d.type === 'trend') {
+    d.infinite = document.getElementById('propTrendInfinite').checked;
     d.p1.price = snapPrice(parseFloat(document.getElementById('propP1Price').value));
     d.p2.price = snapPrice(parseFloat(document.getElementById('propP2Price').value));
     d.p1.time = drawingState.helpers.fromInputDateTime(document.getElementById('propP1DateTime').value);
@@ -1078,6 +1317,15 @@ function applyPropsFromPanel() {
 
   if (d.type === 'horizontal') syncHorizontalPriceLine(d);
   redrawCanvas();
+}
+
+function flashButtonSaved(btn) {
+  if (!btn) return;
+  const original = btn.textContent;
+  btn.textContent = 'Saved';
+  setTimeout(() => {
+    btn.textContent = original;
+  }, 1200);
 }
 
 let propsPanelBound = false;
@@ -1106,20 +1354,24 @@ function bindPropsPanel() {
     renderFibLevelsPanel(d);
     redrawCanvas();
   });
+  document.getElementById('propLineSaveDefault').addEventListener('click', () => {
+    const d = getDrawingById(drawingState.selectedId);
+    if (!d || !LINE_STANDARD_TYPES.includes(d.type)) return;
+    applyPropsFromPanel();
+    saveLineStandardForType(d.type, d);
+    flashButtonSaved(document.getElementById('propLineSaveDefault'));
+  });
   document.getElementById('propFibSaveStandard').addEventListener('click', () => {
     const d = getDrawingById(drawingState.selectedId);
     if (!d || d.type !== 'fibonacci') return;
     applyPropsFromPanel();
-    saveFibStandard({ color: d.color, levels: d.levels });
-    const btn = document.getElementById('propFibSaveStandard');
-    const original = btn.textContent;
-    btn.textContent = 'Saved';
-    setTimeout(() => {
-      btn.textContent = original;
-    }, 1200);
+    saveFibStandard({ color: d.color, width: d.width, levels: d.levels });
+    flashButtonSaved(document.getElementById('propFibSaveStandard'));
   });
-  document.querySelectorAll('.draw-tool-btn').forEach((btn) => {
-    btn.addEventListener('click', () => setActiveTool(btn.dataset.tool));
+  document.querySelectorAll('#drawToolbar [data-tool]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setActiveTool(btn.dataset.tool);
+    });
   });
 }
 
@@ -1155,7 +1407,7 @@ function initDrawings(chart, series, helpers, candles = []) {
   resizeCanvas();
   bindPropsPanel();
   showPropsSidebar();
-  setPropsPanelExpanded(false);
+  setPropsPanelExpanded(true);
   setActiveTool('cursor');
 
   if (!drawingState.resizeObs) {
@@ -1203,6 +1455,11 @@ function destroyDrawings() {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    const menu = document.getElementById('clearDrawingsMenu');
+    if (menu && !menu.classList.contains('hidden')) {
+      hideClearDrawingsMenu();
+      return;
+    }
     drawingState.pendingPoint = null;
     clearMeasure();
     setActiveTool('cursor');
@@ -1219,3 +1476,21 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keyup', (e) => {
   if (e.key === 'Control') setSnapOverlay(null);
 });
+
+document.getElementById('clearDrawingsBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleClearDrawingsMenu();
+});
+document.getElementById('clearDrawingsCancel')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  hideClearDrawingsMenu();
+});
+document.getElementById('clearDrawingsConfirm')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  clearAllDrawings();
+  hideClearDrawingsMenu();
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#clearDrawingsWrap')) hideClearDrawingsMenu();
+});
+document.getElementById('clearDrawingsMenu')?.addEventListener('click', (e) => e.stopPropagation());
